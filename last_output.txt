@@ -1,0 +1,17 @@
+
+Model: GPT-6.1 Sol
+Lead: GPT-6.1 Sol is a language model from OpenAI, released in September 2026, with multimodal input, a 1.1M-token context window, and pricing from $2.00/M input, $0.100/M cached input, $10.00/M output.
+Model: Claude Sonnet 5.5
+Lead: Claude Sonnet 5.5 is a language model from Anthropic, released in September 2026, with multimodal input, a 1M-token context window, and pricing from $2.00/M input, $0.200/M cached input, $10.00/M output.
+Model: Claude Opus 5.5
+Lead: Claude Opus 5.5 is a language model from Anthropic, released in September 2026, with multimodal input, a 1M-token context window, and pricing from $4.00/M input, $0.200/M cached input, $20.00/M output.
+Model: GPT-6 Luna
+Lead: GPT-6 Luna is a language model from OpenAI, released in September 2026, with multimodal input, a 1.1M-token context window, and pricing from $0.100/M input, $0.010/M cached input, $0.500/M output.
+Model: GPT-6 Sol
+Lead: GPT-6 Sol is a language model from OpenAI, released in September 2026, with multimodal input, a 1.1M-token context window, and pricing from $2.00/M input, $0.200/M cached input, $10.00/M output.
+Model: MiMo-V2.6-Flash
+Lead: MiMo-V2.6-Flash is a language model from Xiaomi, released in September 2026, with multimodal input, a 1.0M-token context window, and pricing from $0.140/M input, $0.003/M cached input, $0.280/M output.
+Model: MiMo-V2.6-Pro
+Lead: MiMo-V2.6-Pro is a language model from Xiaomi, released in September 2026, with multimodal input, a 1.0M-token context window, and pricing from $0.435/M input, $0.004/M cached input, $0.870/M output.
+Model: Grok 4.7
+Lead: Grok 4.7 is a language model from xAI, released in September 2026, with multimodal input, a 500K-token context window, and pricing from $2.00/M input, $0.500/M cached input, $6.00/M output.
