@@ -12,7 +12,6 @@ BASE_URL = "https://llm-stats.com"
 LLM_UPDATES_URL = f"{BASE_URL}/llm-updates"
 
 def get_latest_model_updates(BASE_URL=BASE_URL, LLM_UPDATES_URL=LLM_UPDATES_URL):
-# Step 1: Get all update cards with requests + BeautifulSoup
     llm_updates = ''
     llm_updates_html = requests.get(LLM_UPDATES_URL).text
     llm_updates_soup = BeautifulSoup(llm_updates_html, "html.parser")
@@ -38,7 +37,15 @@ def get_latest_model_updates(BASE_URL=BASE_URL, LLM_UPDATES_URL=LLM_UPDATES_URL)
             llm_updates += f'\nLead: {model_lead.text}'
 
         # Step 4: Use Selenium to click and reveal description
-        driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+        options = webdriver.ChromeOptions()
+        options.add_argument("--headless")              # run without GUI
+        options.add_argument("--no-sandbox")            # required in CI
+        options.add_argument("--disable-dev-shm-usage") # avoid shared memory issues
+
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()),
+            options=options
+        )
         driver.get(model_detail_url)
 
         # Halting the execution for 1 second
@@ -64,4 +71,3 @@ def get_latest_model_updates(BASE_URL=BASE_URL, LLM_UPDATES_URL=LLM_UPDATES_URL)
         driver.quit()
     
     return llm_updates
-        
