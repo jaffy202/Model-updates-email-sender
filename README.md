@@ -64,8 +64,10 @@ Modern web applications frequently mix server-rendered markup with client-side i
 - **Automated Change Detection**: Tracks previously scraped model updates in `last_output.txt` and only triggers notifications when new releases or modified details are detected.
 - **Integrated Email Alerts**: Automatically formats and delivers update summaries to designated recipients via SMTP (e.g. Gmail).
 - **Hybrid Scraping Engine**: Uses lightweight HTTP requests where possible and delegates to Selenium only when interactive UI rendering is required.
+- **Parallel Lead Fetching**: Concurrent `ThreadPoolExecutor` fetches static lead text across all model cards simultaneously, significantly reducing total scrape time.
 - **Automated Driver Management**: Leverages `webdriver-manager` to automatically download and configure matching ChromeDriver binaries.
 - **Explicit Synchronization**: Employs `WebDriverWait` with `expected_conditions` to prevent race conditions during DOM re-renders.
+- **JS-Based Click with Retry**: Uses `execute_script("arguments[0].click()")` to bypass overlapping UI overlays (`ElementClickInterceptedException`) and retries up to 3 times on stale DOM references (`StaleElementReferenceException`), ensuring reliable description expansion even on dynamic pages.
 - **Resilient Exception Handling**: Wraps UI clicks and email operations in structured `try/except` blocks to ensure robust execution.
 
 ---
@@ -73,12 +75,12 @@ Modern web applications frequently mix server-rendered markup with client-side i
 ## Directory Structure
 
 ```text
-llm_engineering/week1/web_scraping/
-├── __init__.py           # Package marker
+Model-updates-email-sender/
 ├── llm_scraping.py       # Core scraper implementation
 ├── main.py               # Orchestrator: change-detection & email dispatch
 ├── last_output.txt       # Cache of the latest scraped output (generated)
 ├── requirements.txt      # Python dependencies
+├── .gitignore            # Git ignore rules
 └── README.md             # Module documentation
 ```
 
@@ -97,7 +99,7 @@ llm_engineering/week1/web_scraping/
 
 1. **Navigate to the module directory**:
    ```bash
-   cd llm_engineering/week1/web_scraping
+   cd Model-updates-email-sender
    ```
 
 2. **(Optional) Create and activate a virtual environment**:
@@ -185,25 +187,36 @@ Description: Claude Sonnet 5.5 is the second model in Anthropic's Claude 5.5 fam
 - **`BASE_URL`**: `str` = `"https://llm-stats.com"` — Base domain used to resolve relative hyperlinks.
 - **`LLM_UPDATES_URL`**: `str` = `f"{BASE_URL}/llm-updates"` — Target listing endpoint.
 
+#### Private Helpers
+
+- **`_fetch_model_lead(args: tuple) -> tuple`**:
+  Fetches the static `p.model-lead` text for a single model detail page using `requests` + `BeautifulSoup`. Designed to run inside a `ThreadPoolExecutor` for concurrent execution across all cards.
+
+- **`_create_driver() -> webdriver.Chrome`**:
+  Instantiates a headless Chrome `webdriver.Chrome` instance with `--no-sandbox` and `--disable-dev-shm-usage` flags. Resolves the ChromeDriver binary once via `ChromeDriverManager().install()` so the path lookup is not repeated per-page.
+
+- **`_get_description(driver, url) -> str | None`**:
+  Navigates to a model detail page and expands its full description. Uses a **JS-based click** (`execute_script("arguments[0].click()")`) to bypass `ElementClickInterceptedException` caused by floating UI overlays, and scrolls the button into view before clicking. Implements a **retry loop (up to 3 attempts)** that re-fetches the button element on each attempt to recover from `StaleElementReferenceException` triggered by post-navigation DOM rebuilds.
+
 #### `get_latest_model_updates(BASE_URL, LLM_UPDATES_URL) -> str`
 Orchestrates the multi-stage extraction:
 1. **Index Parsing**: Queries `LLM_UPDATES_URL` via `requests` and locates all update cards (`a.group.flex`).
 2. **Card Iteration & Model Extraction**: Extracts model name from `<h3>` and builds detail URL.
-3. **Lead Extraction**: Fetches static HTML and reads summary lead (`p.model-lead`).
-4. **Dynamic Description Expansion**: Opens Chrome WebDriver, clicks `button.ml-1`, waits for `p.model-description`, and cleans UI artifacts.
+3. **Parallel Lead Extraction**: Dispatches `_fetch_model_lead` across all cards concurrently using `ThreadPoolExecutor(max_workers=8)`.
+4. **Dynamic Description Expansion**: Reuses a single shared `webdriver.Chrome` instance (created by `_create_driver`) to sequentially call `_get_description` per card — clicks `button.ml-1`, waits for `p.model-description`, and strips trailing `"less"` UI text.
 5. **Returns**: Formatted newline-separated string containing aggregated model entries.
 
 ---
 
 ## DOM Selectors Reference
 
-| Selector | Tool | Purpose |
-| :--- | :--- | :--- |
-| `a.group.flex` | BeautifulSoup | Selects individual update cards on the index page |
-| `h3` | BeautifulSoup | Extracts the model title from an update card |
-| `p.model-lead` | BeautifulSoup | Extracts the initial lead / summary text on detail page |
-| `button.ml-1` | Selenium | Locates the interactive "more/expand" button |
-| `p.model-description` | Selenium | Locates the fully rendered model description after expansion |
+| Selector | Tool | Interaction | Purpose |
+| :--- | :--- | :--- | :--- |
+| `a.group.flex` | BeautifulSoup | Static parse | Selects individual update cards on the index page |
+| `h3` | BeautifulSoup | Static parse | Extracts the model title from an update card |
+| `p.model-lead` | BeautifulSoup | Static parse | Extracts the initial lead / summary text on detail page |
+| `button.ml-1` | Selenium | JS click + retry | Locates the interactive "more/expand" button; clicked via `execute_script` to bypass overlay intercepts |
+| `p.model-description` | Selenium | `WebDriverWait` | Locates the fully rendered model description after expansion |
 
 ---
 
