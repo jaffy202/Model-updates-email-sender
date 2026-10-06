@@ -17,10 +17,11 @@ This module demonstrates a dual-strategy scraping architecture: combining fast H
   - [1. Running the Automated Alert Pipeline (`main.py`)](#1-running-the-automated-alert-pipeline-mainpy)
   - [2. Direct Module Invocation / Import](#2-direct-module-invocation--import)
 - [Code Breakdown & Reference](#code-breakdown--reference)
-  - [`main.py` — Pipeline & Notification Manager](#mainpy--pipeline--notification-manager)
+  - [`main.py` — Pipeline Orchestrator](#mainpy--pipeline-orchestrator)
+  - [`email_formatter.py` — Email Formatter](#email_formatterpy--email-formatter)
+  - [`email_sender.py` — SMTP Dispatcher](#email_senderpy--smtp-dispatcher)
   - [`llm_scraping.py` — Core Scraper Engine](#llm_scrapingpy--core-scraper-engine)
 - [DOM Selectors Reference](#dom-selectors-reference)
-- [Senior Engineer Insights & Optimization Recommendations](#senior-engineer-insights--optimization-recommendations)
 
 ---
 
@@ -39,7 +40,7 @@ Modern web applications frequently mix server-rendered markup with client-side i
 │ 2. Scrape & Aggregate Updates (`llm_scraping.py`)           │
 │ - Discover cards statically via `requests` + `BeautifulSoup` │
 │ - Expand interactive descriptions via `selenium`            │
-│ - Return formatted updates text                             │
+│ - Return raw formatted text                                 │
 └──────────────────────────────┬──────────────────────────────┘
                                │
                                ▼
@@ -51,10 +52,15 @@ Modern web applications frequently mix server-rendered markup with client-side i
                 │ (Different / Initial)       │ (Identical)
                 ▼                             ▼
 ┌───────────────────────────────┐ ┌───────────────────────────┐
-│ 4. Update & Dispatch          │ │ 4. No-Op                  │
+│ 4. Format & Dispatch          │ │ 4. No-Op                  │
 │ - Overwrite `last_output.txt` │ │ - Log "[NO CHANGE]"       │
-│ - Send email via SMTP         │ │ - Terminate cleanly       │
-└───────────────────────────────┘ └───────────────────────────┘
+│ - Parse models into structs   │ │ - Terminate cleanly       │
+│   (`email_formatter.py`)      │ └───────────────────────────┘
+│ - Build HTML + plain-text     │
+│   email bodies                │
+│ - Send multipart email        │
+│   via SMTP (`email_sender.py`)│
+└───────────────────────────────┘
 ```
 
 ---
@@ -62,7 +68,8 @@ Modern web applications frequently mix server-rendered markup with client-side i
 ## Features
 
 - **Automated Change Detection**: Tracks previously scraped model updates in `last_output.txt` and only triggers notifications when new releases or modified details are detected.
-- **Integrated Email Alerts**: Automatically formats and delivers update summaries to designated recipients via SMTP (e.g. Gmail).
+- **Styled HTML Emails**: Produces rich, provider colour-coded HTML emails with a dark header banner, per-model cards, and a plain-text fallback — all via `email_formatter.py`.
+- **Multipart Email Dispatch**: Sends `multipart/alternative` messages so every email client (Gmail, Outlook, plain-text) renders the best version it supports.
 - **Hybrid Scraping Engine**: Uses lightweight HTTP requests where possible and delegates to Selenium only when interactive UI rendering is required.
 - **Parallel Lead Fetching**: Concurrent `ThreadPoolExecutor` fetches static lead text across all model cards simultaneously, significantly reducing total scrape time.
 - **Automated Driver Management**: Leverages `webdriver-manager` to automatically download and configure matching ChromeDriver binaries.
@@ -76,8 +83,10 @@ Modern web applications frequently mix server-rendered markup with client-side i
 
 ```text
 Model-updates-email-sender/
-├── llm_scraping.py       # Core scraper implementation
-├── main.py               # Orchestrator: change-detection & email dispatch
+├── llm_scraping.py       # Core scraper: static + headless browser extraction
+├── email_formatter.py    # Parses raw output; builds HTML & plain-text email bodies
+├── email_sender.py       # SMTP dispatcher — sends multipart/alternative email
+├── main.py               # Orchestrator: change-detection, formatting & dispatch
 ├── last_output.txt       # Cache of the latest scraped output (generated)
 ├── requirements.txt      # Python dependencies
 ├── .gitignore            # Git ignore rules
@@ -163,21 +172,45 @@ Description: Claude Sonnet 5.5 is the second model in Anthropic's Claude 5.5 fam
 
 ## Code Breakdown & Reference
 
-### `main.py` — Pipeline & Notification Manager
+### `main.py` — Pipeline Orchestrator
 
 #### Key Configurations
 - `OUTPUT_FILE`: `Path` — Path to `last_output.txt` storing historical run outputs.
-- `RECIPIENT_EMAIL`: `str` — Target inbox for alert emails.
-- `SENDER_EMAIL`: `str` — Sender Google email account.
-- `SENDER_PASSWORD`: `str` — 16-character Google App Password for SMTP authentication.
-- `SMTP_SERVER`: `str` — Hostname of the email server (`smtp.gmail.com`).
-- `SMTP_PORT`: `int` — SMTP port (`587` for STARTTLS / `465` for SSL).
+- `RECIPIENT_EMAIL`: `str` — Target inbox for alert emails (read from env var).
+- `SENDER_EMAIL`: `str` — Sender Google email account (read from env var).
+- `SENDER_PASSWORD`: `str` — 16-character Google App Password for SMTP authentication (read from env var).
 
 #### Functions
-- **`send_email(subject: str, body: str, recipient: str) -> bool`**:
-  Constructs a `MIMEMultipart` email with plain-text UTF-8 encoding, establishes an authenticated SMTP connection, and transmits the message.
 - **`main()`**:
-  Coordinates scraping, performs string diffing against `OUTPUT_FILE`, updates local storage, and triggers email notifications upon difference detection.
+  Coordinates scraping, performs string diffing against `OUTPUT_FILE`, updates local storage, calls `email_formatter` to build HTML and plain-text bodies, then dispatches the email via `email_sender`.
+
+---
+
+### `email_formatter.py` — Email Formatter
+
+Parses the raw scraper string into structured data and renders the email bodies.
+
+#### Functions
+- **`parse_models(raw_text: str) -> list[dict]`**:
+  Splits the raw text on `Model:` boundaries and extracts `name`, `lead`, `description`, `provider`, and `colors` (provider-matched colour palette) for each entry.
+- **`build_html_email(models: list[dict], date_str: str) -> str`**:
+  Returns a complete HTML document using table-based layout with inline CSS (compatible with Gmail and Outlook). Each model is rendered as a card with a colour-coded provider header, a bold lead row, and a description row. Includes a dark header banner and a footer.
+- **`build_plain_text_email(models: list[dict], date_str: str) -> str`**:
+  Returns a clean, human-readable plain-text alternative with `━━━` section dividers and clearly labelled `SUMMARY` / `DETAILS` blocks.
+
+---
+
+### `email_sender.py` — SMTP Dispatcher
+
+Handles all SMTP connection and message transmission logic.
+
+#### Constants
+- `SMTP_SERVER`: `str` — `"smtp.gmail.com"`
+- `SMTP_PORT`: `int` — `587` (STARTTLS); set to `465` to switch to SMTP_SSL.
+
+#### Functions
+- **`send_email(subject, html_body, plain_body, sender_email, sender_password, recipient) -> bool`**:
+  Constructs a `MIMEMultipart("alternative")` message, attaches the plain-text part first and the HTML part second (email clients render the last matching part they support), establishes an authenticated STARTTLS/SSL SMTP connection, and transmits the message.
 
 ---
 
